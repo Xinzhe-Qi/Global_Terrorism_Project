@@ -1,0 +1,159 @@
+---
+title: "315 Project"
+author: "Xinzhe Qi"
+date: "4/26/2020"
+output: 
+  html_document:
+    toc:  true
+    toc_float:  true
+    code_folding:  hide
+    highlight:  tango
+    df_print:  paged
+---
+
+# Load Data
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+
+data = read_csv("/Users/xinzhe/OneDrive/CMU/36315/Project/globalterrorismdb.csv")
+
+
+#data$motive = iconv(data$motive, to = "utf-8")
+
+# for (col in colnames(mydataframe)){
+#   Encoding(mydataframe[[col]]) <- "UTF-8"}
+
+Encoding(x = data$country_txt) <- "UTF-8"
+Encoding(x = data$city) <- "UTF-8"
+
+data$country_txt <-
+  iconv( x = data$country_txt
+         , from = "UTF-8"
+         , to = "UTF-8"
+         , sub = "" )
+
+data$city <-
+  iconv( x = data$city
+         , from = "UTF-8"
+         , to = "UTF-8"
+         , sub = "" )
+
+head(data)
+```
+
+# Histogram of Weapon condition on Target
+```{r}
+df = data %>% 
+  group_by(targtype1_txt, weaptype1_txt) %>% 
+  summarise(target_counts = n()) %>% 
+  arrange(desc(target_counts)) %>% 
+  mutate(weaptype1_txt = 
+           recode(weaptype1_txt, 
+                         `Vehicle (not to include vehicle-borne explosives, i.e., car or truck bombs)`="Vehicle"))
+```
+
+From the distribution of weapon type 1 conditioning on target type 1, we can see that explosives and firearms take large part across all tart types. Private Citizens and Property are the most targeted object among all. 
+
+```{r message=FALSE, warning=FALSE}
+library(viridis)
+ggplot(df, aes(x = reorder(targtype1_txt, target_counts, sum), 
+               y = target_counts, fill = weaptype1_txt)) + 
+  geom_bar(stat="identity") +
+  theme(legend.position="top") + 
+  labs(fill = "Weapon Type", 
+       x = "Target Types", y = "Counts",
+       title = "Distribution of Weapon Type 1 conditioned on Target Type 1") +
+  scale_fill_viridis(discrete = TRUE) + 
+  coord_flip()
+```
+
+
+
+
+# Texting Mining of Motive
+We can see that the most frequent words in motive are "victim", "military", "part". A lot of words related to religous wars pop up in the wordcloud, such as "sunni", "sectarian", "iraq", "extremist", "taliban", "muslim". Other frequent words often involve political combats, such as "maoist", "communist", "polic".
+```{r message=FALSE, warning=FALSE}
+library(tm)
+library(wordcloud)
+df <- data %>% 
+  filter(!is.na(motive)) %>% 
+  filter(motive != "")
+
+specificWords <- c("The", "Unknown", "attack", "specific", "motive", "sources", "unknown", "claimed", "targeted", "carried", "noted", "incident", "stated", "responsibility", "the", "however", "attacks", "speculated")
+
+text <- sapply(df$motive, function(x) gsub("\n"," ",x))
+text <- sample(text, nrow(df))
+motive_text = str_replace_all(text,"[^[:graph:]]", " ")
+  
+motive_corpus <- VCorpus(VectorSource(motive_text))
+motive_corpus <- motive_corpus %>% 
+  tm_map(content_transformer(tolower)) %>%
+  tm_map(content_transformer(removeNumbers)) %>% 
+  tm_map(content_transformer(removePunctuation)) %>%
+  tm_map(content_transformer(removeWords), stopwords("english")) %>%
+  tm_map(content_transformer(removeWords), specificWords)
+
+motive_tdm = TermDocumentMatrix(motive_corpus,
+                           control = list(minWordLength = 3, 
+                                          stopwords = TRUE, stemming = TRUE))
+
+m <- as.matrix(motive_tdm)
+v <- sort(rowSums(m), decreasing=TRUE)
+d <- data.frame(word = names(v), freq=v)
+wordcloud(d$word, d$freq, min.freq = 5, 
+          colors = brewer.pal(9,"Set1"), 
+          rot.per = 0.35, max.words = 100)
+```
+
+The top ten frequent words are shown as below:
+```{r}
+head(d, 10)
+```
+
+# Map of Attacks
+
+We can spot some main areas where terrorist incidents occur the most over time. The top places are Pakistan/Afriganistan area Iraq area, and Nigeria area. East Asia and America show much fewer incidents, compared to places above.
+```{r}
+library(leaflet)
+# df <- data %>% filter(suicide == 1)
+# dat = read_csv("/Users/xinzhe/OneDrive/CMU/36315/Project/globalterrorismdb.csv")
+leaflet(data = data) %>%
+  addTiles() %>%
+  addMarkers(lat = data$latitude, lng = data$longitude, 
+             clusterOptions = markerClusterOptions(),
+             popup= paste("<strong>Place: </strong>", data$city,"-",data$country_txt,
+                          "<br><br><strong>Date: </strong>", data$iyear, "/", data$imonth, "/", data$iday))
+
+```
+
+
+# Ransom
+```{r eval = FALSE, echo = FALSE}
+df <- data %>% 
+  filter(!is.na(ransomnote))
+
+#text = str_replace_all(df$ransomnote,"[^[:graph:]]", " ")
+
+ransomCorpus <- VCorpus(VectorSource(text)) %>% 
+  tm_map(content_transformer(tolower)) %>% 
+  tm_map(content_transformer(removePunctuation)) %>% 
+  tm_map(content_transformer(removeNumbers)) %>% 
+  tm_map(content_transformer(removeWords), stopwords("english"))
+
+ransomTDM = TermDocumentMatrix(ransomCorpus, 
+                               control = list(minWordLength = 1, 
+                                              stopwords = TRUE, 
+                                              stemming = TRUE))
+
+m <- as.matrix(ransomTDM)
+v <- sort(rowSums(m), decreasing = TRUE)
+d <- data.frame(word = names(v), freq = v)
+wordcloud(d$word, d$freq, colors = brewer.pal(9, "Set1"), 
+                  rot.per = 0.3)
+```
+
+
+Ransomnote text is about the requests made by the perpetrators. Large part of ransom is about "hostage", "kidnap", money "exchange", and releasing "prisoner". Also, we see that many terrorist incidents did not request ransom at all, with "unknown" denoted.
+
+
+
